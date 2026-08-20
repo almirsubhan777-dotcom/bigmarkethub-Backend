@@ -10,6 +10,15 @@ const TIERS = {
   aliexpress: { min: 999, max: 300000, rate: 0.12 },
 };
 
+const DAILY_TASK_LIMIT = 25;
+const REFERRAL_COMMISSION_RATE = 0.0001; // 0.01% of the order value, per the Invite & Earn page copy
+
+function startOfTodayISO() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -37,6 +46,18 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Your balance no longer qualifies for this tier.' });
   }
 
+  // Enforce the 25-tasks-per-day limit server-side.
+  const { count: tasksToday } = await supabaseAdmin
+    .from('records')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
+    .eq('type', 'task')
+    .gte('created_at', startOfTodayISO());
+
+  if ((tasksToday || 0) >= DAILY_TASK_LIMIT) {
+    return res.status(429).json({ error: `Daily task limit reached (${DAILY_TASK_LIMIT}/${DAILY_TASK_LIMIT}). Come back tomorrow!` });
+  }
+
   const commission = Math.round(orderValue * tier.rate * 100) / 100;
   const newBalance = Math.round((balance + commission) * 100) / 100;
 
@@ -54,9 +75,34 @@ export default async function handler(req, res) {
     description: `Sold "${productName}" for $${orderValue.toFixed(2)} on ${platform[0].toUpperCase() + platform.slice(1)} (+${(tier.rate * 100).toFixed(2)}% commission)`,
   });
 
+  // Pay the referrer (if any) their commission on this transaction — instantly, per the Invite & Earn terms.
+  if (user.referred_by) {
+    const referralBonus = Math.round(orderValue * REFERRAL_COMMISSION_RATE * 100) / 100;
+    if (referralBonus > 0) {
+      const { data: referrer } = await supabaseAdmin.from('users').select('balance').eq('id', user.referred_by).maybeSingle();
+      if (referrer) {
+        await supabaseAdmin
+          .from('users')
+          .update({ balance: Math.round((Number(referrer.balance) + referralBonus) * 100) / 100 })
+          .eq('id', user.referred_by);
+
+        await logRecord({
+          userId: user.referred_by,
+          type: 'referral_bonus',
+          referenceId: user.id,
+          amount: referralBonus,
+          status: 'completed',
+          description: `${user.username} completed a task — referral commission earned`,
+        });
+      }
+    }
+  }
+
   return res.status(200).json({
     success: true,
     commission,
     new_balance: newBalance,
+    tasks_today: (tasksToday || 0) + 1,
+    daily_limit: DAILY_TASK_LIMIT,
   });
 }
