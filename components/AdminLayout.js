@@ -1,24 +1,45 @@
 // components/AdminLayout.js
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 
-const navItems = [
+const fullNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard' },
   { href: '/admin/users', label: 'Users' },
   { href: '/admin/deposits', label: 'Deposits' },
   { href: '/admin/withdrawals', label: 'Withdrawals' },
   { href: '/admin/kyc', label: 'KYC Verification' },
+  { href: '/admin/wallets', label: 'Saved Wallets' },
   { href: '/admin/support', label: 'Support Chat' },
+  { href: '/admin/distributors', label: 'Distributors' },
+  { href: '/admin/recharge', label: 'Recharge Customer' },
   { href: '/admin/records', label: 'All Records' },
+];
+
+const distributorNavItems = [
+  { href: '/admin/recharge', label: 'Recharge Customer' },
 ];
 
 export default function AdminLayout({ title, children }) {
   const router = useRouter();
+  const [adminInfo, setAdminInfo] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/admin/me')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.admin) setAdminInfo(data.admin);
+      })
+      .catch(() => {});
+  }, []);
 
   async function handleLogout() {
     await fetch('/api/admin/logout', { method: 'POST' });
     router.push('/admin/login');
   }
+
+  const isDistributor = adminInfo?.role === 'distributor';
+  const navItems = isDistributor ? distributorNavItems : fullNavItems;
 
   return (
     <div style={styles.shell}>
@@ -27,8 +48,23 @@ export default function AdminLayout({ title, children }) {
         <div style={styles.logo}>
           BIG MARKET <span style={{ color: '#FF6A00' }}>HUB</span>
           <br />
-          <small style={{ fontWeight: 400, color: '#9aa0aa' }}>Admin Panel</small>
+          <small style={{ fontWeight: 400, color: '#9aa0aa' }}>
+            {isDistributor ? 'Agent Panel' : 'Admin Panel'}
+          </small>
         </div>
+        {adminInfo && (
+          <div style={styles.adminBadge}>
+            <div style={{ fontSize: 12, fontWeight: 700 }}>{adminInfo.username}</div>
+            <div style={{ fontSize: 10, color: isDistributor ? '#FFA23A' : '#2DD4A7', textTransform: 'uppercase', fontWeight: 800, letterSpacing: 0.5 }}>
+              {isDistributor ? 'Agent' : 'Super Admin'}
+            </div>
+            {isDistributor && (
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#FF6A00', marginTop: 6 }}>
+                Pool: ${Number(adminInfo.credit_balance).toFixed(2)}
+              </div>
+            )}
+          </div>
+        )}
         <nav>
           {navItems.map((item) => (
             <Link
@@ -76,7 +112,8 @@ const globalStyles = `
 const styles = {
   shell: { display: 'flex', minHeight: '100vh' },
   sidebar: { width: 220, background: '#0a0b0f', borderRight: '1px solid rgba(255,255,255,.08)', padding: '22px 14px', flexShrink: 0 },
-  logo: { fontWeight: 800, fontSize: 16, marginBottom: 26, padding: '0 8px' },
+  logo: { fontWeight: 800, fontSize: 16, marginBottom: 16, padding: '0 8px' },
+  adminBadge: { background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 10, padding: '10px 12px', marginBottom: 18 },
   navLink: { display: 'block', padding: '10px 12px', marginBottom: 4, borderRadius: 8, color: '#9aa0aa', textDecoration: 'none', fontSize: 13.5, fontWeight: 600 },
   navLinkActive: { background: 'rgba(255,106,0,0.12)', color: '#fff' },
   main: { flex: 1, padding: '26px 32px', maxWidth: 1200 },
