@@ -30,8 +30,8 @@ export default function AdminLogin() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0d12', fontFamily: 'system-ui, sans-serif' }}>
-      <div style={{ width: 340, background: '#14161c', borderRadius: 16, padding: 32, color: '#fff' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0b0d12', fontFamily: 'system-ui, sans-serif', padding: 16, boxSizing: 'border-box' }}>
+      <div style={{ width: '100%', maxWidth: 340, background: '#14161c', borderRadius: 16, padding: 28, color: '#fff', boxSizing: 'border-box' }}>
         <h1 style={{ fontSize: 18, margin: '0 0 4px' }}>Admin Panel</h1>
         <p style={{ color: '#9aa0aa', fontSize: 12.5, margin: '0 0 20px' }}>Big Market Hub — sign in to manage the platform.</p>
         {error && (

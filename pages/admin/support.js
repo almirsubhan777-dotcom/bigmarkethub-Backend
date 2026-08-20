@@ -7,6 +7,7 @@ export default function Support() {
   const [activeId, setActiveId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState('');
+  const [showChatOnMobile, setShowChatOnMobile] = useState(false);
 
   const loadTickets = useCallback(async () => {
     const res = await fetch('/api/admin/support');
@@ -25,6 +26,11 @@ export default function Support() {
 
   useEffect(() => { loadTickets(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadMessages(activeId); }, [activeId, loadMessages]);
+
+  function selectTicket(id) {
+    setActiveId(id);
+    setShowChatOnMobile(true);
+  }
 
   async function sendReply(e) {
     e.preventDefault();
@@ -52,13 +58,27 @@ export default function Support() {
 
   return (
     <AdminLayout title="Support Chat">
-      <div style={{ display: 'flex', gap: 16, height: '70vh' }}>
-        <div style={{ width: 280, flexShrink: 0, background: '#14161c', borderRadius: 12, overflowY: 'auto' }}>
+      <style>{`
+        .support-shell{ display:flex; gap:16px; height:70vh; }
+        .support-list{ width:280px; flex-shrink:0; background:#14161c; border-radius:12px; overflow-y:auto; }
+        .support-chat{ flex:1; min-width:0; display:flex; flex-direction:column; background:#14161c; border-radius:12px; overflow:hidden; }
+        .support-back-btn{ display:none; }
+        @media (max-width: 768px){
+          .support-shell{ height: calc(100vh - 150px); }
+          .support-list{ width:100%; }
+          .support-list.hide-on-mobile{ display:none; }
+          .support-chat.hide-on-mobile{ display:none; }
+          .support-back-btn{ display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.08); border:none; color:#fff; padding:6px 10px; border-radius:7px; font-size:12px; font-weight:700; cursor:pointer; }
+        }
+      `}</style>
+
+      <div className="support-shell">
+        <div className={`support-list${showChatOnMobile ? ' hide-on-mobile' : ''}`}>
           {tickets.length === 0 && <div className="empty-state">No conversations yet.</div>}
           {tickets.map((t) => (
             <div
               key={t.id}
-              onClick={() => setActiveId(t.id)}
+              onClick={() => selectTicket(t.id)}
               style={{
                 padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,.06)', cursor: 'pointer',
                 background: t.id === activeId ? 'rgba(255,106,0,.1)' : 'transparent',
@@ -75,14 +95,22 @@ export default function Support() {
           ))}
         </div>
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#14161c', borderRadius: 12, overflow: 'hidden' }}>
+        <div className={`support-chat${!showChatOnMobile ? ' hide-on-mobile' : ''}`}>
           {!activeTicket ? (
             <div className="empty-state">Select a conversation to view it.</div>
           ) : (
             <>
-              <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div><b>{activeTicket.users?.username}</b> <span style={{ color: '#9aa0aa', fontSize: 12 }}>({activeTicket.users?.uid})</span></div>
-                <button className="btn btn-neutral" onClick={closeTicket}>Close Ticket</button>
+              <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <button className="support-back-btn" onClick={() => setShowChatOnMobile(false)}>
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+                    Back
+                  </button>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <b>{activeTicket.users?.username}</b> <span style={{ color: '#9aa0aa', fontSize: 12 }}>({activeTicket.users?.uid})</span>
+                  </div>
+                </div>
+                <button className="btn btn-neutral" onClick={closeTicket} style={{ flexShrink: 0 }}>Close Ticket</button>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {messages.length === 0 && <div className="empty-state">No messages yet.</div>}
@@ -90,7 +118,7 @@ export default function Support() {
                   <div
                     key={m.id}
                     style={{
-                      maxWidth: '70%',
+                      maxWidth: '80%',
                       alignSelf: m.sender_type === 'admin' ? 'flex-end' : 'flex-start',
                       background: m.sender_type === 'admin' ? 'linear-gradient(90deg,#FF6A00,#FFA23A)' : 'rgba(255,255,255,.06)',
                       padding: '10px 14px', borderRadius: 12, fontSize: 13,
