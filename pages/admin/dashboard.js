@@ -1,11 +1,21 @@
 // pages/admin/dashboard.js
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import AdminLayout from '../../components/AdminLayout';
 
 export default function Dashboard() {
+  const router = useRouter();
   const [stats, setStats] = useState(null);
   const [err, setErr] = useState('');
+
+  useEffect(() => {
+    fetch('/api/admin/me')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.admin?.role === 'distributor') router.replace('/admin/recharge');
+      });
+  }, [router]);
 
   useEffect(() => {
     fetch('/api/admin/dashboard')
