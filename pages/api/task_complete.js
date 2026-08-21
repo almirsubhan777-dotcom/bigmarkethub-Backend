@@ -13,6 +13,9 @@ const TIERS = {
 const DAILY_TASK_LIMIT = 25;
 const REFERRAL_COMMISSION_RATE = 0.0001; // 0.01% of the order value, per the Invite & Earn page copy
 
+// Must match task_next.js — an order can never be worth more than the account balance.
+const ORDER_VALUE_MAX_PCT = 1.00;
+
 function startOfTodayISO() {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -44,6 +47,13 @@ export default async function handler(req, res) {
   const balance = Number(user.balance);
   if (balance < tier.min || balance > tier.max) {
     return res.status(403).json({ error: 'Your balance no longer qualifies for this tier.' });
+  }
+
+  // Guard: the order value must be within what the server itself would have issued
+  // for this balance, so a tampered request can't inflate the payout.
+  const maxAllowedOrder = Math.round(balance * ORDER_VALUE_MAX_PCT * 100) / 100;
+  if (orderValue > maxAllowedOrder + 0.01) {
+    return res.status(400).json({ error: 'Invalid order value for your account tier.' });
   }
 
   // Enforce the 25-tasks-per-day limit server-side.
@@ -98,11 +108,14 @@ export default async function handler(req, res) {
     }
   }
 
+  const tasksDone = (tasksToday || 0) + 1;
+
   return res.status(200).json({
     success: true,
     commission,
     new_balance: newBalance,
-    tasks_today: (tasksToday || 0) + 1,
+    tasks_today: tasksDone,
+    tasks_remaining: DAILY_TASK_LIMIT - tasksDone,
     daily_limit: DAILY_TASK_LIMIT,
   });
 }
