@@ -10,11 +10,18 @@ const TIERS = {
 
 const DAILY_TASK_LIMIT = 25;
 
-// Order value is scaled to the customer's own balance: a merchant handling a
-// $10 account gets small orders, a $900 account gets larger ones. The published
-// commission rate is always paid in full on whatever the order value is.
-const ORDER_VALUE_MIN_PCT = 0.60; // an order is worth 60%–100% of the account balance
-const ORDER_VALUE_MAX_PCT = 1.00;
+// Order value is scaled to the customer's own balance, and the percentage is set
+// per tier so that a full day of tasks tops out at roughly the same return on
+// every tier (~30%–50% of balance) despite the different commission rates.
+// The published commission rate is always paid in full on the order value.
+//   Amazon      4% × 25 tasks × 50% of balance = 50% max daily return
+//   Alibaba     8% × 25 tasks × 25% of balance = 50% max daily return
+//   AliExpress 12% × 25 tasks × 17% of balance = 50% max daily return
+const ORDER_VALUE_PCT = {
+  amazon:     { min: 0.30, max: 0.50 },
+  alibaba:    { min: 0.15, max: 0.25 },
+  aliexpress: { min: 0.10, max: 0.17 },
+};
 
 const PRODUCTS = [
   { name: 'Wireless Earbuds', photo: 'earbuds' },
@@ -73,7 +80,8 @@ export default async function handler(req, res) {
   }
 
   const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
-  const pct = ORDER_VALUE_MIN_PCT + Math.random() * (ORDER_VALUE_MAX_PCT - ORDER_VALUE_MIN_PCT);
+  const range = ORDER_VALUE_PCT[platform];
+  const pct = range.min + Math.random() * (range.max - range.min);
   const orderValue = Math.round(balance * pct * 100) / 100;
   const commission = Math.round(orderValue * tier.rate * 100) / 100;
 

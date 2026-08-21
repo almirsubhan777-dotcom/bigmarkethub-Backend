@@ -13,8 +13,13 @@ const TIERS = {
 const DAILY_TASK_LIMIT = 25;
 const REFERRAL_COMMISSION_RATE = 0.0001; // 0.01% of the order value, per the Invite & Earn page copy
 
-// Must match task_next.js — an order can never be worth more than the account balance.
-const ORDER_VALUE_MAX_PCT = 1.00;
+// Must match task_next.js — the highest order value the server would ever issue
+// for each tier, used to reject tampered requests.
+const ORDER_VALUE_MAX_PCT = {
+  amazon: 0.50,
+  alibaba: 0.25,
+  aliexpress: 0.17,
+};
 
 function startOfTodayISO() {
   const d = new Date();
@@ -51,7 +56,7 @@ export default async function handler(req, res) {
 
   // Guard: the order value must be within what the server itself would have issued
   // for this balance, so a tampered request can't inflate the payout.
-  const maxAllowedOrder = Math.round(balance * ORDER_VALUE_MAX_PCT * 100) / 100;
+  const maxAllowedOrder = Math.round(balance * ORDER_VALUE_MAX_PCT[platform] * 100) / 100;
   if (orderValue > maxAllowedOrder + 0.01) {
     return res.status(400).json({ error: 'Invalid order value for your account tier.' });
   }
