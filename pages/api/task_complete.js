@@ -27,6 +27,14 @@ function startOfTodayISO() {
   return d.toISOString();
 }
 
+/** The daily counter rolls over at 00:00 UTC — this is when it next resets. */
+function nextResetISO() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString();
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -70,7 +78,12 @@ export default async function handler(req, res) {
     .gte('created_at', startOfTodayISO());
 
   if ((tasksToday || 0) >= DAILY_TASK_LIMIT) {
-    return res.status(429).json({ error: `Daily task limit reached (${DAILY_TASK_LIMIT}/${DAILY_TASK_LIMIT}). Come back tomorrow!` });
+    return res.status(429).json({
+      error: `Daily task limit reached (${DAILY_TASK_LIMIT}/${DAILY_TASK_LIMIT}).`,
+      limit_reached: true,
+      daily_limit: DAILY_TASK_LIMIT,
+      resets_at: nextResetISO(),
+    });
   }
 
   const commission = Math.round(orderValue * tier.rate * 100) / 100;
@@ -122,5 +135,6 @@ export default async function handler(req, res) {
     tasks_today: tasksDone,
     tasks_remaining: DAILY_TASK_LIMIT - tasksDone,
     daily_limit: DAILY_TASK_LIMIT,
+    resets_at: nextResetISO(),
   });
 }
