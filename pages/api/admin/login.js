@@ -22,7 +22,9 @@ export default async function handler(req, res) {
   const token = await createSession({ adminId: admin.id });
 
   // Store as an httpOnly cookie so the admin pages can check it server-side too.
-  res.setHeader('Set-Cookie', `admin_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${72 * 3600}`);
+  // No Max-Age: this is a session cookie. The real expiry is enforced server-side
+  // (short idle timeout that slides forward while the panel is actively used).
+  res.setHeader('Set-Cookie', `admin_token=${token}; Path=/; HttpOnly; SameSite=Lax`);
 
   return res.status(200).json({ success: true, token });
 }

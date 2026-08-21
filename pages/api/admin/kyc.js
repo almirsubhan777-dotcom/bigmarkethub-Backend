@@ -9,19 +9,51 @@ export default async function handler(req, res) {
 
   if (req.method === 'GET') {
     const status = String(req.query.status || 'pending');
+    const from = String(req.query.from || '').trim();
+    const to = String(req.query.to || '').trim();
+
     let query = supabaseAdmin
       .from('kyc_verifications')
       .select('*, users(username, uid, email)')
       .order('submitted_at', { ascending: false })
-      .limit(200);
+      .limit(300);
+
     if (status !== 'all') query = query.eq('status', status);
+    if (from) query = query.gte('submitted_at', new Date(from + 'T00:00:00Z').toISOString());
+    if (to) query = query.lte('submitted_at', new Date(to + 'T23:59:59Z').toISOString());
+
     const { data: kycs, error } = await query;
     if (error) return res.status(500).json({ error: 'Could not fetch KYC requests' });
     return res.status(200).json({ success: true, kycs });
   }
 
   if (req.method === 'POST') {
-    const { kyc_id, decision, notes } = req.body || {};
+    const { kyc_id, decision, notes, action } = req.body || {};
+
+    if (action === 'delete') {
+      // Remove the stored document images from Storage too, so nothing sensitive lingers.
+      const { data: kyc } = await supabaseAdmin
+        .from('kyc_verifications')
+        .select('front_id_url, back_id_url, selfie_url')
+        .eq('id', kyc_id)
+        .maybeSingle();
+
+      if (kyc) {
+        const bucket = process.env.SUPABASE_STORAGE_BUCKET || 'uploads';
+        const paths = [kyc.front_id_url, kyc.back_id_url, kyc.selfie_url]
+          .filter(Boolean)
+          .map((url) => url.split(`/${bucket}/`)[1])
+          .filter(Boolean);
+        if (paths.length) {
+          await supabaseAdmin.storage.from(bucket).remove(paths);
+        }
+      }
+
+      const { error } = await supabaseAdmin.from('kyc_verifications').delete().eq('id', kyc_id);
+      if (error) return res.status(500).json({ error: 'Could not delete KYC record' });
+      return res.status(200).json({ success: true });
+    }
+
     if (!['approved', 'rejected'].includes(decision)) return res.status(400).json({ error: 'Invalid decision' });
 
     const { data: kyc } = await supabaseAdmin.from('kyc_verifications').select('*').eq('id', kyc_id).single();
