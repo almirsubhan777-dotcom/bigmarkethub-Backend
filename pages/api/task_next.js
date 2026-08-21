@@ -3,20 +3,22 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireUser } from '../../lib/auth';
 
 const TIERS = {
-  amazon:     { min: 10,  max: 498,    rate: 0.04 },
-  alibaba:    { min: 499, max: 998,    rate: 0.08 },
-  aliexpress: { min: 999, max: 300000, rate: 0.12 },
+  amazon:     { min: 10,  max: 498,    rate: 0.04, batchSize: 25 },
+  alibaba:    { min: 499, max: 998,    rate: 0.08, batchSize: 40 },
+  aliexpress: { min: 999, max: 300000, rate: 0.12, batchSize: 60 },
 };
 
-const DAILY_TASK_LIMIT = 25;
+// After finishing a batch the merchant queue needs a short pause before the
+// next batch of orders is released.
+const BATCH_COOLDOWN_SECONDS = 60;
+
+// Safety cap so a single account can't run indefinitely in one day.
+// Raise or lower this number to control your daily exposure.
+const MAX_BATCHES_PER_DAY = 1;
 
 // Order value is scaled to the customer's own balance, and the percentage is set
-// per tier so that a full day of tasks tops out at roughly the same return on
-// every tier (~30%–50% of balance) despite the different commission rates.
+// per tier so a full batch tops out at roughly the same return on every tier.
 // The published commission rate is always paid in full on the order value.
-//   Amazon      4% × 25 tasks × 50% of balance = 50% max daily return
-//   Alibaba     8% × 25 tasks × 25% of balance = 50% max daily return
-//   AliExpress 12% × 25 tasks × 17% of balance = 50% max daily return
 const ORDER_VALUE_PCT = {
   amazon:     { min: 0.30, max: 0.50 },
   alibaba:    { min: 0.15, max: 0.25 },
@@ -48,12 +50,16 @@ function startOfTodayISO() {
   return d.toISOString();
 }
 
-/** The daily counter rolls over at 00:00 UTC — this is when it next resets. */
 function nextResetISO() {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString();
+}
+
+/** Supabase TIMESTAMP columns come back without a zone; they are UTC. */
+function parseTs(ts) {
+  return new Date(/[Z+]/.test(ts) ? ts : ts + 'Z');
 }
 
 export default async function handler(req, res) {
@@ -75,22 +81,47 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Your balance does not qualify for this tier.' });
   }
 
-  const { count: tasksToday } = await supabaseAdmin
+  const { data: recentTasks, count: tasksToday } = await supabaseAdmin
     .from('records')
-    .select('*', { count: 'exact', head: true })
+    .select('created_at', { count: 'exact' })
     .eq('user_id', user.id)
     .eq('type', 'task')
-    .gte('created_at', startOfTodayISO());
+    .gte('created_at', startOfTodayISO())
+    .order('created_at', { ascending: false })
+    .limit(1);
 
   const done = tasksToday || 0;
-  if (done >= DAILY_TASK_LIMIT) {
+  const batchSize = tier.batchSize;
+  const batchesDone = Math.floor(done / batchSize);
+  const positionInBatch = done % batchSize;
+  const atBatchBoundary = positionInBatch === 0 && done > 0;
+
+  // Hit the daily safety cap.
+  if (batchesDone >= MAX_BATCHES_PER_DAY && atBatchBoundary) {
     return res.status(429).json({
-      error: `Daily task limit reached (${DAILY_TASK_LIMIT}/${DAILY_TASK_LIMIT}).`,
-      limit_reached: true,
-      tasks_done: done,
-      daily_limit: DAILY_TASK_LIMIT,
+      error: `You've completed all ${MAX_BATCHES_PER_DAY} batches available today.`,
+      day_complete: true,
+      batches_done: batchesDone,
+      max_batches: MAX_BATCHES_PER_DAY,
       resets_at: nextResetISO(),
     });
+  }
+
+  // Between batches: short cooldown before the next batch is released.
+  if (atBatchBoundary && recentTasks && recentTasks[0]) {
+    const lastTaskAt = parseTs(recentTasks[0].created_at);
+    const elapsed = (Date.now() - lastTaskAt.getTime()) / 1000;
+    if (elapsed < BATCH_COOLDOWN_SECONDS) {
+      return res.status(429).json({
+        error: 'Next batch is preparing.',
+        cooldown: true,
+        cooldown_seconds: BATCH_COOLDOWN_SECONDS,
+        cooldown_until: new Date(lastTaskAt.getTime() + BATCH_COOLDOWN_SECONDS * 1000).toISOString(),
+        batch_size: batchSize,
+        batches_done: batchesDone,
+        max_batches: MAX_BATCHES_PER_DAY,
+      });
+    }
   }
 
   const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
@@ -110,7 +141,9 @@ export default async function handler(req, res) {
       rate_percent: tier.rate * 100,
       commission,
     },
-    tasks_done: done,
-    daily_limit: DAILY_TASK_LIMIT,
+    tasks_in_batch: positionInBatch,
+    batch_size: batchSize,
+    batches_done: batchesDone,
+    max_batches: MAX_BATCHES_PER_DAY,
   });
 }

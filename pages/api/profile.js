@@ -2,7 +2,18 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireUser } from '../../lib/auth';
 
-const DAILY_TASK_LIMIT = 25;
+// Batch size grows with the account tier (matches task_next.js).
+const TIER_BATCH = [
+  { min: 999, size: 60 },
+  { min: 499, size: 40 },
+  { min: 10,  size: 25 },
+];
+const MAX_BATCHES_PER_DAY = 1;
+
+function batchSizeFor(balance) {
+  const tier = TIER_BATCH.find((t) => balance >= t.min);
+  return tier ? tier.size : 25;
+}
 
 function startOfTodayISO() {
   const d = new Date();
@@ -53,7 +64,9 @@ export default async function handler(req, res) {
       kyc_status: user.kyc_status,
       created_at: user.created_at,
       tasks_today: tasksToday,
-      daily_task_limit: DAILY_TASK_LIMIT,
+      batch_size: batchSizeFor(Number(user.balance)),
+      max_batches: MAX_BATCHES_PER_DAY,
+      daily_task_limit: batchSizeFor(Number(user.balance)) * MAX_BATCHES_PER_DAY,
       today_earnings: Math.round(todayEarnings * 100) / 100,
       total_tasks_completed: totalTasks || 0,
       total_task_earnings: Math.round(totalTaskEarnings * 100) / 100,

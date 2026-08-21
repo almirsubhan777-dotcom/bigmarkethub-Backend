@@ -5,12 +5,14 @@ import { requireUser, validateRequired, logRecord } from '../../lib/auth';
 // Server-side source of truth for each merchant tier's commission rate and
 // required balance range — never trust the rate the browser sends.
 const TIERS = {
-  amazon:     { min: 10,  max: 498,    rate: 0.04 },
-  alibaba:    { min: 499, max: 998,    rate: 0.08 },
-  aliexpress: { min: 999, max: 300000, rate: 0.12 },
+  amazon:     { min: 10,  max: 498,    rate: 0.04, batchSize: 25 },
+  alibaba:    { min: 499, max: 998,    rate: 0.08, batchSize: 40 },
+  aliexpress: { min: 999, max: 300000, rate: 0.12, batchSize: 60 },
 };
 
-const DAILY_TASK_LIMIT = 25;
+// Must match task_next.js.
+const MAX_BATCHES_PER_DAY = 1;
+
 const REFERRAL_COMMISSION_RATE = 0.0001; // 0.01% of the order value, per the Invite & Earn page copy
 
 // Must match task_next.js — the highest order value the server would ever issue
@@ -77,11 +79,13 @@ export default async function handler(req, res) {
     .eq('type', 'task')
     .gte('created_at', startOfTodayISO());
 
-  if ((tasksToday || 0) >= DAILY_TASK_LIMIT) {
+  const batchSize = tier.batchSize;
+  if ((tasksToday || 0) >= batchSize * MAX_BATCHES_PER_DAY) {
     return res.status(429).json({
-      error: `Daily task limit reached (${DAILY_TASK_LIMIT}/${DAILY_TASK_LIMIT}).`,
-      limit_reached: true,
-      daily_limit: DAILY_TASK_LIMIT,
+      error: `You've completed all ${MAX_BATCHES_PER_DAY} batches available today.`,
+      day_complete: true,
+      batches_done: MAX_BATCHES_PER_DAY,
+      max_batches: MAX_BATCHES_PER_DAY,
       resets_at: nextResetISO(),
     });
   }
@@ -133,8 +137,12 @@ export default async function handler(req, res) {
     commission,
     new_balance: newBalance,
     tasks_today: tasksDone,
-    tasks_remaining: DAILY_TASK_LIMIT - tasksDone,
-    daily_limit: DAILY_TASK_LIMIT,
+    tasks_in_batch: tasksDone % batchSize,
+    batch_size: batchSize,
+    batches_done: Math.floor(tasksDone / batchSize),
+    max_batches: MAX_BATCHES_PER_DAY,
+    batch_complete: tasksDone % batchSize === 0,
+    day_complete: tasksDone >= batchSize * MAX_BATCHES_PER_DAY,
     resets_at: nextResetISO(),
   });
 }
