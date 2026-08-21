@@ -9,12 +9,18 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
   const type = String(req.query.type || 'all');
+  const from = String(req.query.from || '').trim();
+  const to = String(req.query.to || '').trim();
+
   let query = supabaseAdmin
     .from('records')
     .select('*, users(username, uid)')
     .order('created_at', { ascending: false })
-    .limit(300);
+    .limit(500);
+
   if (type !== 'all') query = query.eq('type', type);
+  if (from) query = query.gte('created_at', new Date(from + 'T00:00:00Z').toISOString());
+  if (to) query = query.lte('created_at', new Date(to + 'T23:59:59Z').toISOString());
 
   const { data: records, error } = await query;
   if (error) return res.status(500).json({ error: 'Could not fetch records' });
