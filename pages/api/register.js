@@ -57,6 +57,15 @@ export default async function handler(req, res) {
 
   if (insertErr) return res.status(500).json({ error: 'Could not create account' });
 
+  // Log the signup itself so new accounts are visible in the admin All Records view.
+  await logRecord({
+    userId: newUser.id,
+    type: 'signup',
+    amount: 0,
+    status: 'completed',
+    description: `New account created (${email})${referrer ? ` — invited by ${referrer.username}` : ''}`,
+  });
+
   // Log the referral immediately so it shows up in the referrer's Team list right away.
   // reference_id = the new (referred) user's id, so earnings can be grouped per-referral later.
   await logRecord({
