@@ -14,10 +14,12 @@ const fullNavItems = [
   { href: '/admin/distributors', label: 'Distributors' },
   { href: '/admin/recharge', label: 'Recharge Customer' },
   { href: '/admin/records', label: 'All Records' },
+  { href: '/admin/settings', label: 'Settings' },
 ];
 
 const distributorNavItems = [
   { href: '/admin/recharge', label: 'Recharge Customer' },
+  { href: '/admin/settings', label: 'Settings' },
 ];
 
 export default function AdminLayout({ title, children }) {
@@ -26,13 +28,33 @@ export default function AdminLayout({ title, children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    fetch('/api/admin/me')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.admin) setAdminInfo(data.admin);
-      })
-      .catch(() => {});
-  }, []);
+    let cancelled = false;
+
+    async function checkSession() {
+      try {
+        const res = await fetch('/api/admin/me');
+        if (res.status === 401) {
+          // Session timed out — send them back to the login screen.
+          if (!cancelled) router.replace('/admin/login');
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled && data.admin) setAdminInfo(data.admin);
+      } catch (e) {
+        /* network hiccup — leave the page as-is */
+      }
+    }
+
+    checkSession();
+
+    // Poll while the tab is actually being looked at. This both detects an expired
+    // session promptly and keeps an in-use panel from timing out mid-task.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') checkSession();
+    }, 30000);
+
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [router]);
 
   // Close the mobile drawer automatically whenever the page changes.
   useEffect(() => {
