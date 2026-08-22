@@ -1,6 +1,7 @@
 // pages/admin/users.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -12,7 +13,7 @@ export default function Users() {
   const [newPw, setNewPw] = useState('');
   const [notice, setNotice] = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     const params = new URLSearchParams();
     if (search) params.set('q', search);
     if (fromDate) params.set('from', fromDate);
@@ -20,9 +21,10 @@ export default function Users() {
     const res = await fetch('/api/admin/users?' + params.toString());
     const data = await res.json();
     setUsers(data.users || []);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, fromDate, toDate]);
 
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, [search, fromDate, toDate]);
 
   async function post(body) {
     const res = await fetch('/api/admin/users', {
@@ -67,6 +69,8 @@ export default function Users() {
 
   return (
     <AdminLayout title="Users">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       <form onSubmit={(e) => { e.preventDefault(); load(); }} style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <input
           type="text" placeholder="Search username, email, or UID..." value={search}

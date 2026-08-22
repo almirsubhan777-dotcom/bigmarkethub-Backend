@@ -1,18 +1,20 @@
 // pages/admin/withdrawals.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Withdrawals() {
   const [withdrawals, setWithdrawals] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
 
-  async function load(status) {
-    const res = await fetch('/api/admin/withdrawals?status=' + status);
+  const load = useCallback(async () => {
+    const res = await fetch('/api/admin/withdrawals?status=' + statusFilter);
     const data = await res.json();
     setWithdrawals(data.withdrawals || []);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
 
-  useEffect(() => { load(statusFilter); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, [statusFilter]);
 
   async function decide(withdrawalId, decision) {
     if (decision === 'approved' && !confirm('Confirm: funds have been sent manually to this wallet address?')) return;
@@ -21,11 +23,13 @@ export default function Withdrawals() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ withdrawal_id: withdrawalId, decision }),
     });
-    load(statusFilter);
+    load();
   }
 
   return (
     <AdminLayout title="Withdrawal Requests">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       <div style={{ marginBottom: 16 }}>
         {['pending', 'approved', 'rejected', 'all'].map((s) => (
           <button key={s} className={`btn ${statusFilter === s ? 'btn-approve' : 'btn-neutral'}`} onClick={() => setStatusFilter(s)}>

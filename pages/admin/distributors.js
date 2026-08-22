@@ -1,6 +1,7 @@
 // pages/admin/distributors.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Distributors() {
   const [distributors, setDistributors] = useState([]);
@@ -9,14 +10,14 @@ export default function Distributors() {
   const [creating, setCreating] = useState(false);
   const [creditAmounts, setCreditAmounts] = useState({});
 
-  async function load() {
+  const load = useCallback(async () => {
     const res = await fetch('/api/admin/distributors');
     const data = await res.json();
     if (data.error) { setError(data.error); return; }
     setDistributors(data.distributors || []);
-  }
+  }, []);
 
-  useEffect(() => { load(); }, []);
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, []);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -63,6 +64,8 @@ export default function Distributors() {
 
   return (
     <AdminLayout title="Distributors / Agents">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       {error && <div style={{ background: 'rgba(255,71,71,.12)', border: '1px solid rgba(255,71,71,.3)', color: '#ff6b6b', padding: '10px 14px', borderRadius: 8, fontSize: 12.5, marginBottom: 16 }}>{error}</div>}
 
       <div style={{ background: '#14161c', borderRadius: 12, padding: 20, marginBottom: 24, maxWidth: 480 }}>

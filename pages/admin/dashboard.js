@@ -1,8 +1,9 @@
 // pages/admin/dashboard.js
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -17,15 +18,15 @@ export default function Dashboard() {
       });
   }, [router]);
 
-  useEffect(() => {
-    fetch('/api/admin/dashboard')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) { setErr(data.error); return; }
-        setStats(data.stats);
-      })
-      .catch(() => setErr('Could not load dashboard'));
+  const load = useCallback(async () => {
+    const res = await fetch('/api/admin/dashboard');
+    const data = await res.json();
+    if (data.error) { setErr(data.error); return; }
+    setErr('');
+    setStats(data.stats);
   }, []);
+
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, []);
 
   const cardStyle = { background: '#14161c', borderRadius: 12, padding: 18, textDecoration: 'none', color: '#fff', display: 'block' };
   const labelStyle = { fontSize: 11, color: '#9aa0aa', textTransform: 'uppercase', marginBottom: 8 };
@@ -33,6 +34,8 @@ export default function Dashboard() {
 
   return (
     <AdminLayout title="Dashboard">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       {err && <div className="empty-state">{err} — make sure you're logged in.</div>}
       {stats && (
         <>

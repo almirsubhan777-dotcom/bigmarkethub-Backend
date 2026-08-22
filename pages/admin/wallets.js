@@ -1,18 +1,23 @@
 // pages/admin/wallets.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Wallets() {
   const [wallets, setWallets] = useState([]);
 
-  useEffect(() => {
-    fetch('/api/admin/wallets')
-      .then((r) => r.json())
-      .then((data) => setWallets(data.wallets || []));
+  const load = useCallback(async () => {
+    const res = await fetch('/api/admin/wallets');
+    const data = await res.json();
+    setWallets(data.wallets || []);
   }, []);
+
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, []);
 
   return (
     <AdminLayout title="Customer Saved Wallets">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       {wallets.length === 0 ? (
         <div className="empty-state">No wallets saved by customers yet.</div>
       ) : (

@@ -1,18 +1,20 @@
 // pages/admin/deposits.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Deposits() {
   const [deposits, setDeposits] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
 
-  async function load(status) {
-    const res = await fetch('/api/admin/deposits?status=' + status);
+  const load = useCallback(async () => {
+    const res = await fetch('/api/admin/deposits?status=' + statusFilter);
     const data = await res.json();
     setDeposits(data.deposits || []);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
 
-  useEffect(() => { load(statusFilter); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, [statusFilter]);
 
   async function decide(depositId, decision) {
     await fetch('/api/admin/deposits', {
@@ -20,11 +22,13 @@ export default function Deposits() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ deposit_id: depositId, decision }),
     });
-    load(statusFilter);
+    load();
   }
 
   return (
     <AdminLayout title="Deposit Requests">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       <div style={{ marginBottom: 16 }}>
         {['pending', 'approved', 'rejected', 'all'].map((s) => (
           <button key={s} className={`btn ${statusFilter === s ? 'btn-approve' : 'btn-neutral'}`} onClick={() => setStatusFilter(s)}>

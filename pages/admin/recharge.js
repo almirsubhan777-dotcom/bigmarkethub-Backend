@@ -1,6 +1,7 @@
 // pages/admin/recharge.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Recharge() {
   const [adminInfo, setAdminInfo] = useState(null);
@@ -10,11 +11,13 @@ export default function Recharge() {
   const [submitting, setSubmitting] = useState(false);
   const [history, setHistory] = useState([]);
 
-  function loadMe() {
-    fetch('/api/admin/me').then((r) => r.json()).then((data) => { if (data.admin) setAdminInfo(data.admin); });
-  }
+  const loadMe = useCallback(async () => {
+    const res = await fetch('/api/admin/me');
+    const data = await res.json();
+    if (data.admin) setAdminInfo(data.admin);
+  }, []);
 
-  useEffect(() => { loadMe(); }, []);
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(loadMe, []);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -45,6 +48,7 @@ export default function Recharge() {
 
   return (
     <AdminLayout title="Recharge Customer">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
       {isDistributor && adminInfo && (
         <div style={{ background: 'linear-gradient(90deg, rgba(255,106,0,.12), rgba(255,162,58,.06))', border: '1px solid rgba(255,106,0,.3)', borderRadius: 12, padding: 18, marginBottom: 22, maxWidth: 480 }}>
           <div style={{ fontSize: 11, color: '#9aa0aa', textTransform: 'uppercase', marginBottom: 6 }}>Your Available Credit Pool</div>

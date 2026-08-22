@@ -1,6 +1,7 @@
 // pages/admin/records.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 const TYPES = ['all', 'signup', 'deposit', 'withdrawal', 'admin_adjustment', 'task', 'referral_bonus', 'kyc'];
 
@@ -21,16 +22,17 @@ export default function Records() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     const params = new URLSearchParams({ type: typeFilter });
     if (fromDate) params.set('from', fromDate);
     if (toDate) params.set('to', toDate);
     const res = await fetch('/api/admin/records?' + params.toString());
     const data = await res.json();
     setRecords(data.records || []);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typeFilter, fromDate, toDate]);
 
-  useEffect(() => { load(); }, [typeFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, [typeFilter, fromDate, toDate]);
 
   function thisMonth() {
     const now = new Date();
@@ -43,6 +45,8 @@ export default function Records() {
 
   return (
     <AdminLayout title="All Records">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       <div style={{ marginBottom: 14 }}>
         {TYPES.map((t) => (
           <button key={t} className={`btn ${typeFilter === t ? 'btn-approve' : 'btn-neutral'}`} onClick={() => setTypeFilter(t)}>

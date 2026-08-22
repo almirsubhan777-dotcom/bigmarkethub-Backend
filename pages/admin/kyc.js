@@ -1,6 +1,7 @@
 // pages/admin/kyc.js
-import { useEffect, useState } from 'react';
+import { useState, useCallback } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+import { useAutoRefresh, RefreshBar } from '../../components/RefreshBar';
 
 export default function Kyc() {
   const [kycs, setKycs] = useState([]);
@@ -9,16 +10,17 @@ export default function Kyc() {
   const [toDate, setToDate] = useState('');
   const [notes, setNotes] = useState({});
 
-  async function load() {
+  const load = useCallback(async () => {
     const params = new URLSearchParams({ status: statusFilter });
     if (fromDate) params.set('from', fromDate);
     if (toDate) params.set('to', toDate);
     const res = await fetch('/api/admin/kyc?' + params.toString());
     const data = await res.json();
     setKycs(data.kycs || []);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, fromDate, toDate]);
 
-  useEffect(() => { load(); }, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { refreshing, lastUpdated, refreshNow } = useAutoRefresh(load, [statusFilter, fromDate, toDate]);
 
   async function decide(kycId, decision) {
     await fetch('/api/admin/kyc', {
@@ -41,6 +43,8 @@ export default function Kyc() {
 
   return (
     <AdminLayout title="Identity Verification (KYC)">
+      <RefreshBar refreshing={refreshing} lastUpdated={lastUpdated} onRefresh={refreshNow} />
+
       <div style={{ marginBottom: 14 }}>
         {['pending', 'approved', 'rejected', 'all'].map((s) => (
           <button key={s} className={`btn ${statusFilter === s ? 'btn-approve' : 'btn-neutral'}`} onClick={() => setStatusFilter(s)}>
