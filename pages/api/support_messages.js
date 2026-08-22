@@ -30,7 +30,7 @@ export default async function handler(req, res) {
   } else {
     const { data: msgs } = await supabaseAdmin
       .from('support_messages')
-      .select('id, sender_type, message, created_at')
+      .select('id, sender_type, message, attachment_url, attachment_type, created_at')
       .eq('ticket_id', ticket.id)
       .order('created_at', { ascending: true });
     messages = msgs || [];
