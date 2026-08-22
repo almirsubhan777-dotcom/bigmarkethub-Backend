@@ -27,7 +27,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const user = await requireUser(req, res);
+  const user = await requireUser(req, res, { allowSuspended: true });
   if (!user) return;
 
   const [

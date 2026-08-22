@@ -26,9 +26,11 @@ export default async function handler(req, res) {
   if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
-  if (user.status !== 'active') {
-    return res.status(403).json({ error: `Your account is ${user.status}. Please contact support.` });
+  if (user.status === 'banned') {
+    return res.status(403).json({ error: 'Your account has been banned. Please contact support if you believe this is a mistake.' });
   }
+  // Suspended accounts CAN log in — they land in a restricted view where the
+  // only path forward is Support Chat, so they're able to appeal.
 
   const token = await createSession({ userId: user.id });
 
@@ -41,6 +43,7 @@ export default async function handler(req, res) {
       username: user.username,
       email: user.email,
       full_name: user.full_name,
+      status: user.status,
       balance: Number(user.balance),
       credit_score: user.credit_score,
       kyc_status: user.kyc_status,

@@ -9,7 +9,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const user = await requireUser(req, res);
+  const user = await requireUser(req, res, { allowSuspended: true });
   if (!user) return;
 
   const message = String((req.body || {}).message || '').trim();
