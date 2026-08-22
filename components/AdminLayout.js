@@ -26,6 +26,7 @@ export default function AdminLayout({ title, children }) {
   const router = useRouter();
   const [adminInfo, setAdminInfo] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +56,37 @@ export default function AdminLayout({ title, children }) {
 
     return () => { cancelled = true; clearInterval(interval); };
   }, [router]);
+
+  // Poll for unread support messages from every admin page, so a new customer
+  // message shows up (sidebar badge + browser tab title) no matter which
+  // page you're currently looking at — not just when you're on Support Chat.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkUnread() {
+      try {
+        const res = await fetch('/api/admin/support');
+        if (!res.ok) return;
+        const data = await res.json();
+        const total = (data.tickets || []).reduce((sum, t) => sum + (t.unread || 0), 0);
+        if (!cancelled) setUnreadCount(total);
+      } catch (e) {
+        /* ignore — next poll will retry */
+      }
+    }
+
+    checkUnread();
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') checkUnread();
+    }, 15000);
+
+    document.addEventListener('visibilitychange', checkUnread);
+    return () => { cancelled = true; clearInterval(interval); document.removeEventListener('visibilitychange', checkUnread); };
+  }, []);
+
+  useEffect(() => {
+    document.title = unreadCount > 0 ? `(${unreadCount}) Admin — Big Market Hub` : 'Admin — Big Market Hub';
+  }, [unreadCount]);
 
   // Close the mobile drawer automatically whenever the page changes.
   useEffect(() => {
@@ -104,6 +136,9 @@ export default function AdminLayout({ title, children }) {
               className={`admin-nav-link${router.pathname === item.href ? ' active' : ''}`}
             >
               {item.label}
+              {item.href === '/admin/support' && unreadCount > 0 && (
+                <span className="admin-nav-badge">{unreadCount}</span>
+              )}
             </Link>
           ))}
         </nav>
@@ -137,8 +172,14 @@ const globalStyles = `
   }
   .admin-logo{ font-weight:800; font-size:16px; margin-bottom:16px; padding:0 8px; }
   .admin-badge{ background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08); border-radius:10px; padding:10px 12px; margin-bottom:18px; }
-  .admin-nav-link{ display:block; padding:10px 12px; margin-bottom:4px; border-radius:8px; color:#9aa0aa; text-decoration:none; font-size:13.5px; font-weight:600; }
+  .admin-nav-link{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; margin-bottom:4px; border-radius:8px; color:#9aa0aa; text-decoration:none; font-size:13.5px; font-weight:600; }
   .admin-nav-link:hover, .admin-nav-link.active{ background:rgba(255,106,0,.12); color:#fff; }
+  .admin-nav-badge{
+    background:#FF4747; color:#fff; font-size:10.5px; font-weight:800;
+    min-width:18px; height:18px; border-radius:999px;
+    display:flex; align-items:center; justify-content:center; padding:0 5px;
+    flex-shrink:0;
+  }
 
   .admin-main{ flex:1; min-width:0; max-width:1200px; }
   .admin-page-topbar{ display:flex; justify-content:space-between; align-items:center; padding:18px 32px; border-bottom:1px solid rgba(255,255,255,.06); }
