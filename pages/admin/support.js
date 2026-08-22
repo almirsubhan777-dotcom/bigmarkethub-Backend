@@ -8,6 +8,7 @@ export default function Support() {
   const [messages, setMessages] = useState([]);
   const [reply, setReply] = useState('');
   const [showChatOnMobile, setShowChatOnMobile] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadTickets = useCallback(async () => {
     const res = await fetch('/api/admin/support');
@@ -24,8 +25,25 @@ export default function Support() {
     setMessages(data.messages || []);
   }, []);
 
+  async function handleManualRefresh() {
+    setRefreshing(true);
+    try {
+      await Promise.all([loadTickets(), loadMessages(activeId)]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   useEffect(() => { loadTickets(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadMessages(activeId); }, [activeId, loadMessages]);
+
+  // Gently keep the ticket list (and its unread counts) current while this page is open.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadTickets();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [loadTickets]);
 
   function selectTicket(id) {
     setActiveId(id);
@@ -60,9 +78,10 @@ export default function Support() {
     <AdminLayout title="Support Chat">
       <style>{`
         .support-shell{ display:flex; gap:16px; height:70vh; }
-        .support-list{ width:280px; flex-shrink:0; background:#14161c; border-radius:12px; overflow-y:auto; }
+        .support-list{ width:280px; flex-shrink:0; background:#14161c; border-radius:12px; overflow-y:auto; display:flex; flex-direction:column; }
         .support-chat{ flex:1; min-width:0; display:flex; flex-direction:column; background:#14161c; border-radius:12px; overflow:hidden; }
         .support-back-btn{ display:none; }
+        @keyframes spin{ from{ transform:rotate(0deg); } to{ transform:rotate(360deg); } }
         @media (max-width: 768px){
           .support-shell{ height: calc(100vh - 150px); }
           .support-list{ width:100%; }
@@ -74,6 +93,25 @@ export default function Support() {
 
       <div className="support-shell">
         <div className={`support-list${showChatOnMobile ? ' hide-on-mobile' : ''}`}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+            <span style={{ fontSize: 11.5, color: '#9aa0aa', fontWeight: 700, textTransform: 'uppercase' }}>Conversations</span>
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="btn btn-neutral"
+              style={{ margin: 0, padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 5 }}
+              title="Refresh"
+            >
+              <svg
+                viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4"
+                strokeLinecap="round" strokeLinejoin="round"
+                style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }}
+              >
+                <path d="M21 12a9 9 0 1 1-3-6.7" /><path d="M21 3v6h-6" />
+              </svg>
+              Refresh
+            </button>
+          </div>
           {tickets.length === 0 && <div className="empty-state">No conversations yet.</div>}
           {tickets.map((t) => (
             <div
