@@ -58,6 +58,31 @@ function nextResetISO() {
   return d.toISOString();
 }
 
+/**
+ * If the customer wants to keep going past today's cap, this works out —
+ * honestly, from the same real numbers already in play — roughly how much
+ * more they'd need to deposit to have enough room to finish the batch they
+ * were partway through. This is informational only: their current balance
+ * stays fully theirs and withdrawable either way.
+ */
+function estimateAdditionalDepositNeeded({ platform, tier, balance, earnedToday, startOfDayBalance, tasksToday }) {
+  const batchSize = tier.batchSize;
+  const positionInBatch = tasksToday % batchSize;
+  const remainingTasks = batchSize - positionInBatch;
+  if (remainingTasks <= 0) return null;
+
+  const range = ORDER_VALUE_PCT[platform];
+  const avgPct = (range.min + range.max) / 2;
+  const expectedAdditionalCommission = remainingTasks * balance * avgPct * tier.rate;
+
+  const requiredStartOfDayBalance = (earnedToday + expectedAdditionalCommission) / DAILY_RETURN_CAP_PCT;
+  let suggested = requiredStartOfDayBalance - startOfDayBalance;
+  if (suggested <= 0) return null;
+
+  suggested = Math.ceil(suggested / 5) * 5; // round up to a clean $5 figure
+  return { suggested_additional_deposit: suggested, remaining_tasks_in_batch: remainingTasks, batch_size: batchSize };
+}
+
 /** Supabase TIMESTAMP columns come back without a zone; they are UTC. */
 function parseTs(ts) {
   return new Date(/[Z+]/.test(ts) ? ts : ts + 'Z');
@@ -98,10 +123,12 @@ export default async function handler(req, res) {
 
   // The real stop condition: today's earnings have reached the daily cap.
   if (earnedToday >= dailyCap) {
+    const suggestion = estimateAdditionalDepositNeeded({ platform, tier, balance, earnedToday, startOfDayBalance, tasksToday });
     return res.status(429).json({
       error: "You've reached today's earning limit.",
       day_complete: true,
       resets_at: nextResetISO(),
+      ...(suggestion || {}),
     });
   }
 

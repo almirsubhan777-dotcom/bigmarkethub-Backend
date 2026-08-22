@@ -18,6 +18,14 @@ const ORDER_VALUE_MAX_PCT = {
   aliexpress: 0.17,
 };
 
+// Midpoint of each tier's order-value range (matches task_next.js's ORDER_VALUE_PCT),
+// used only to estimate a suggested top-up deposit — not for real payout math.
+const ORDER_VALUE_AVG_PCT = {
+  amazon: 0.40,
+  alibaba: 0.20,
+  aliexpress: 0.135,
+};
+
 function startOfTodayISO() {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -29,6 +37,30 @@ function nextResetISO() {
   d.setUTCHours(0, 0, 0, 0);
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString();
+}
+
+/**
+ * If the customer wants to keep going past today's cap, this works out —
+ * honestly, from the same real numbers already in play — roughly how much
+ * more they'd need to deposit to have enough room to finish the batch they
+ * were partway through. Informational only: current balance stays fully
+ * theirs and withdrawable either way.
+ */
+function estimateAdditionalDepositNeeded({ platform, tier, balance, earnedToday, startOfDayBalance, tasksToday }) {
+  const batchSize = tier.batchSize;
+  const positionInBatch = tasksToday % batchSize;
+  const remainingTasks = batchSize - positionInBatch;
+  if (remainingTasks <= 0) return null;
+
+  const avgPct = ORDER_VALUE_AVG_PCT[platform];
+  const expectedAdditionalCommission = remainingTasks * balance * avgPct * tier.rate;
+
+  const requiredStartOfDayBalance = (earnedToday + expectedAdditionalCommission) / DAILY_RETURN_CAP_PCT;
+  let suggested = requiredStartOfDayBalance - startOfDayBalance;
+  if (suggested <= 0) return null;
+
+  suggested = Math.ceil(suggested / 5) * 5; // round up to a clean $5 figure
+  return { suggested_additional_deposit: suggested, remaining_tasks_in_batch: remainingTasks, batch_size: batchSize };
 }
 
 export default async function handler(req, res) {
@@ -76,10 +108,12 @@ export default async function handler(req, res) {
   const dailyCap = startOfDayBalance * DAILY_RETURN_CAP_PCT;
 
   if (earnedToday >= dailyCap) {
+    const suggestion = estimateAdditionalDepositNeeded({ platform, tier, balance, earnedToday, startOfDayBalance, tasksToday });
     return res.status(429).json({
       error: "You've reached today's earning limit.",
       day_complete: true,
       resets_at: nextResetISO(),
+      ...(suggestion || {}),
     });
   }
 
@@ -128,6 +162,12 @@ export default async function handler(req, res) {
   const batchSize = tier.batchSize;
   const dayComplete = newEarnedToday >= dailyCap;
 
+  const suggestion = dayComplete
+    ? estimateAdditionalDepositNeeded({
+        platform, tier, balance: newBalance, earnedToday: newEarnedToday, startOfDayBalance, tasksToday: tasksDone,
+      })
+    : null;
+
   return res.status(200).json({
     success: true,
     commission,
@@ -140,5 +180,6 @@ export default async function handler(req, res) {
     today_earnings: Math.round(newEarnedToday * 100) / 100,
     daily_cap_amount: Math.round(dailyCap * 100) / 100,
     resets_at: nextResetISO(),
+    ...(suggestion || {}),
   });
 }
