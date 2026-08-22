@@ -4,15 +4,15 @@ import { requireUser } from '../../lib/auth';
 
 // Batch size grows with the account tier (matches task_next.js).
 const TIER_BATCH = [
-  { min: 999, size: 60 },
-  { min: 499, size: 40 },
-  { min: 10,  size: 25 },
+  { min: 999, size: 12 },
+  { min: 499, size: 20 },
+  { min: 10,  size: 12 },
 ];
-const MAX_BATCHES_PER_DAY = 1;
+const DAILY_RETURN_CAP_PCT = 0.50; // matches task_next.js / task_complete.js
 
 function batchSizeFor(balance) {
   const tier = TIER_BATCH.find((t) => balance >= t.min);
-  return tier ? tier.size : 25;
+  return tier ? tier.size : 12;
 }
 
 function startOfTodayISO() {
@@ -49,6 +49,10 @@ export default async function handler(req, res) {
   const totalTaskEarnings = (allTaskRecords || []).reduce((s, r) => s + Number(r.amount), 0);
   const teamLifetimeEarned = (referralRecords || []).reduce((s, r) => s + Number(r.amount), 0);
 
+  const balance = Number(user.balance);
+  const startOfDayBalance = balance - todayEarnings;
+  const dailyCapAmount = Math.round(startOfDayBalance * DAILY_RETURN_CAP_PCT * 100) / 100;
+
   return res.status(200).json({
     success: true,
     user: {
@@ -59,14 +63,13 @@ export default async function handler(req, res) {
       mobile: user.mobile,
       full_name: user.full_name,
       status: user.status,
-      balance: Number(user.balance),
+      balance,
       credit_score: user.credit_score,
       kyc_status: user.kyc_status,
       created_at: user.created_at,
       tasks_today: tasksToday,
-      batch_size: batchSizeFor(Number(user.balance)),
-      max_batches: MAX_BATCHES_PER_DAY,
-      daily_task_limit: batchSizeFor(Number(user.balance)) * MAX_BATCHES_PER_DAY,
+      batch_size: batchSizeFor(balance),
+      daily_cap_amount: dailyCapAmount,
       today_earnings: Math.round(todayEarnings * 100) / 100,
       total_tasks_completed: totalTasks || 0,
       total_task_earnings: Math.round(totalTaskEarnings * 100) / 100,

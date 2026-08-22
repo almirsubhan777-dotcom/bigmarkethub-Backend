@@ -3,22 +3,23 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireUser } from '../../lib/auth';
 
 const TIERS = {
-  amazon:     { min: 10,  max: 498,    rate: 0.04, batchSize: 25 },
-  alibaba:    { min: 499, max: 998,    rate: 0.08, batchSize: 40 },
-  aliexpress: { min: 999, max: 300000, rate: 0.12, batchSize: 60 },
+  amazon:     { min: 10,  max: 498,    rate: 0.04, batchSize: 12 },
+  alibaba:    { min: 499, max: 998,    rate: 0.08, batchSize: 20 },
+  aliexpress: { min: 999, max: 300000, rate: 0.12, batchSize: 12 },
 };
 
-// After finishing a batch the merchant queue needs a short pause before the
-// next batch of orders is released.
+// After finishing a batch, the user presses "Request Next Batch" and then
+// waits this many seconds before the next batch is released.
 const BATCH_COOLDOWN_SECONDS = 60;
 
-// Safety cap so a single account can't run indefinitely in one day.
-// Raise or lower this number to control your daily exposure.
-const MAX_BATCHES_PER_DAY = 1;
+// The real daily ceiling: total earnings for the day cannot exceed this
+// percentage of the balance the user started the day with. This is what
+// actually controls payout — batch size only controls how the UI paces it.
+const DAILY_RETURN_CAP_PCT = 0.50;
 
-// Order value is scaled to the customer's own balance, and the percentage is set
-// per tier so a full batch tops out at roughly the same return on every tier.
-// The published commission rate is always paid in full on the order value.
+// Order value is scaled to the customer's own balance, tuned per tier so a
+// batch is a meaningful slice of the daily cap rather than using it all at
+// once. The published commission rate is always paid in full on the order value.
 const ORDER_VALUE_PCT = {
   amazon:     { min: 0.30, max: 0.50 },
   alibaba:    { min: 0.15, max: 0.25 },
@@ -81,35 +82,37 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Your balance does not qualify for this tier.' });
   }
 
-  const { data: recentTasks, count: tasksToday } = await supabaseAdmin
+  // Pull today's task records once — used for both the earning cap and the batch position.
+  const { data: todayTasks } = await supabaseAdmin
     .from('records')
-    .select('created_at', { count: 'exact' })
+    .select('amount, created_at')
     .eq('user_id', user.id)
     .eq('type', 'task')
     .gte('created_at', startOfTodayISO())
-    .order('created_at', { ascending: false })
-    .limit(1);
+    .order('created_at', { ascending: true });
 
-  const done = tasksToday || 0;
-  const batchSize = tier.batchSize;
-  const batchesDone = Math.floor(done / batchSize);
-  const positionInBatch = done % batchSize;
-  const atBatchBoundary = positionInBatch === 0 && done > 0;
+  const tasksToday = (todayTasks || []).length;
+  const earnedToday = (todayTasks || []).reduce((s, r) => s + Number(r.amount), 0);
+  const startOfDayBalance = balance - earnedToday;
+  const dailyCap = startOfDayBalance * DAILY_RETURN_CAP_PCT;
 
-  // Hit the daily safety cap.
-  if (batchesDone >= MAX_BATCHES_PER_DAY && atBatchBoundary) {
+  // The real stop condition: today's earnings have reached the daily cap.
+  if (earnedToday >= dailyCap) {
     return res.status(429).json({
-      error: `You've completed all ${MAX_BATCHES_PER_DAY} batches available today.`,
+      error: "You've reached today's earning limit.",
       day_complete: true,
-      batches_done: batchesDone,
-      max_batches: MAX_BATCHES_PER_DAY,
       resets_at: nextResetISO(),
     });
   }
 
-  // Between batches: short cooldown before the next batch is released.
-  if (atBatchBoundary && recentTasks && recentTasks[0]) {
-    const lastTaskAt = parseTs(recentTasks[0].created_at);
+  const batchSize = tier.batchSize;
+  const positionInBatch = tasksToday % batchSize;
+  const atBatchBoundary = positionInBatch === 0 && tasksToday > 0;
+
+  // Between batches: require the cooldown to have elapsed (the frontend button
+  // already waits 60s before calling this again, so this is a safety net).
+  if (atBatchBoundary && todayTasks.length) {
+    const lastTaskAt = parseTs(todayTasks[todayTasks.length - 1].created_at);
     const elapsed = (Date.now() - lastTaskAt.getTime()) / 1000;
     if (elapsed < BATCH_COOLDOWN_SECONDS) {
       return res.status(429).json({
@@ -118,8 +121,6 @@ export default async function handler(req, res) {
         cooldown_seconds: BATCH_COOLDOWN_SECONDS,
         cooldown_until: new Date(lastTaskAt.getTime() + BATCH_COOLDOWN_SECONDS * 1000).toISOString(),
         batch_size: batchSize,
-        batches_done: batchesDone,
-        max_batches: MAX_BATCHES_PER_DAY,
       });
     }
   }
@@ -127,7 +128,13 @@ export default async function handler(req, res) {
   const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
   const range = ORDER_VALUE_PCT[platform];
   const pct = range.min + Math.random() * (range.max - range.min);
-  const orderValue = Math.round(balance * pct * 100) / 100;
+  let orderValue = Math.round(balance * pct * 100) / 100;
+
+  // Never let a single order's commission overshoot what's left under the cap.
+  const remainingUnderCap = Math.max(dailyCap - earnedToday, 0);
+  const maxOrderForCap = Math.round((remainingUnderCap / tier.rate) * 100) / 100;
+  if (orderValue > maxOrderForCap) orderValue = Math.max(maxOrderForCap, 0.01);
+
   const commission = Math.round(orderValue * tier.rate * 100) / 100;
 
   return res.status(200).json({
@@ -143,7 +150,5 @@ export default async function handler(req, res) {
     },
     tasks_in_batch: positionInBatch,
     batch_size: batchSize,
-    batches_done: batchesDone,
-    max_batches: MAX_BATCHES_PER_DAY,
   });
 }

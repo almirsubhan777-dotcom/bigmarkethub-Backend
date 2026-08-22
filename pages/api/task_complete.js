@@ -2,21 +2,16 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin';
 import { requireUser, validateRequired, logRecord } from '../../lib/auth';
 
-// Server-side source of truth for each merchant tier's commission rate and
-// required balance range — never trust the rate the browser sends.
 const TIERS = {
-  amazon:     { min: 10,  max: 498,    rate: 0.04, batchSize: 25 },
-  alibaba:    { min: 499, max: 998,    rate: 0.08, batchSize: 40 },
-  aliexpress: { min: 999, max: 300000, rate: 0.12, batchSize: 60 },
+  amazon:     { min: 10,  max: 498,    rate: 0.04, batchSize: 12 },
+  alibaba:    { min: 499, max: 998,    rate: 0.08, batchSize: 20 },
+  aliexpress: { min: 999, max: 300000, rate: 0.12, batchSize: 12 },
 };
 
-// Must match task_next.js.
-const MAX_BATCHES_PER_DAY = 1;
-
 const REFERRAL_COMMISSION_RATE = 0.0001; // 0.01% of the order value, per the Invite & Earn page copy
+const DAILY_RETURN_CAP_PCT = 0.50;       // must match task_next.js
 
-// Must match task_next.js — the highest order value the server would ever issue
-// for each tier, used to reject tampered requests.
+// Must match task_next.js — the highest order value the server would ever issue per tier.
 const ORDER_VALUE_MAX_PCT = {
   amazon: 0.50,
   alibaba: 0.25,
@@ -29,7 +24,6 @@ function startOfTodayISO() {
   return d.toISOString();
 }
 
-/** The daily counter rolls over at 00:00 UTC — this is when it next resets. */
 function nextResetISO() {
   const d = new Date();
   d.setUTCHours(0, 0, 0, 0);
@@ -64,28 +58,27 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Your balance no longer qualifies for this tier.' });
   }
 
-  // Guard: the order value must be within what the server itself would have issued
-  // for this balance, so a tampered request can't inflate the payout.
   const maxAllowedOrder = Math.round(balance * ORDER_VALUE_MAX_PCT[platform] * 100) / 100;
   if (orderValue > maxAllowedOrder + 0.01) {
     return res.status(400).json({ error: 'Invalid order value for your account tier.' });
   }
 
-  // Enforce the 25-tasks-per-day limit server-side.
-  const { count: tasksToday } = await supabaseAdmin
+  const { data: todayTasks } = await supabaseAdmin
     .from('records')
-    .select('*', { count: 'exact', head: true })
+    .select('amount')
     .eq('user_id', user.id)
     .eq('type', 'task')
     .gte('created_at', startOfTodayISO());
 
-  const batchSize = tier.batchSize;
-  if ((tasksToday || 0) >= batchSize * MAX_BATCHES_PER_DAY) {
+  const tasksToday = (todayTasks || []).length;
+  const earnedToday = (todayTasks || []).reduce((s, r) => s + Number(r.amount), 0);
+  const startOfDayBalance = balance - earnedToday;
+  const dailyCap = startOfDayBalance * DAILY_RETURN_CAP_PCT;
+
+  if (earnedToday >= dailyCap) {
     return res.status(429).json({
-      error: `You've completed all ${MAX_BATCHES_PER_DAY} batches available today.`,
+      error: "You've reached today's earning limit.",
       day_complete: true,
-      batches_done: MAX_BATCHES_PER_DAY,
-      max_batches: MAX_BATCHES_PER_DAY,
       resets_at: nextResetISO(),
     });
   }
@@ -130,7 +123,10 @@ export default async function handler(req, res) {
     }
   }
 
-  const tasksDone = (tasksToday || 0) + 1;
+  const tasksDone = tasksToday + 1;
+  const newEarnedToday = earnedToday + commission;
+  const batchSize = tier.batchSize;
+  const dayComplete = newEarnedToday >= dailyCap;
 
   return res.status(200).json({
     success: true,
@@ -139,10 +135,10 @@ export default async function handler(req, res) {
     tasks_today: tasksDone,
     tasks_in_batch: tasksDone % batchSize,
     batch_size: batchSize,
-    batches_done: Math.floor(tasksDone / batchSize),
-    max_batches: MAX_BATCHES_PER_DAY,
-    batch_complete: tasksDone % batchSize === 0,
-    day_complete: tasksDone >= batchSize * MAX_BATCHES_PER_DAY,
+    batch_complete: !dayComplete && tasksDone % batchSize === 0,
+    day_complete: dayComplete,
+    today_earnings: Math.round(newEarnedToday * 100) / 100,
+    daily_cap_amount: Math.round(dailyCap * 100) / 100,
     resets_at: nextResetISO(),
   });
 }
