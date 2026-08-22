@@ -163,6 +163,18 @@ export default function Support() {
                     }}
                   >
                     {m.message}
+                    {m.attachment_url && m.attachment_type === 'image' && (
+                      <div style={{ marginTop: 6 }}>
+                        <img
+                          src={m.attachment_url} alt="Attachment"
+                          style={{ maxWidth: 220, borderRadius: 10, display: 'block', cursor: 'pointer' }}
+                          onClick={() => window.open(m.attachment_url, '_blank')}
+                        />
+                      </div>
+                    )}
+                    {m.attachment_url && m.attachment_type === 'audio' && (
+                      <audio controls src={m.attachment_url} style={{ marginTop: 6, maxWidth: 220, height: 34, display: 'block' }} />
+                    )}
                     <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>{new Date(m.created_at).toLocaleString()}</div>
                   </div>
                 ))}
