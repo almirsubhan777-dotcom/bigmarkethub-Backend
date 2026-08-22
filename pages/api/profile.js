@@ -8,7 +8,7 @@ const TIER_BATCH = [
   { min: 499, size: 20 },
   { min: 10,  size: 12 },
 ];
-const DAILY_RETURN_CAP_PCT = 0.50; // matches task_next.js / task_complete.js
+const DAILY_RETURN_CAP_PCT = 0.40; // matches task_next.js / task_complete.js
 
 function batchSizeFor(balance) {
   const tier = TIER_BATCH.find((t) => balance >= t.min);

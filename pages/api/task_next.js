@@ -15,7 +15,7 @@ const BATCH_COOLDOWN_SECONDS = 60;
 // The real daily ceiling: total earnings for the day cannot exceed this
 // percentage of the balance the user started the day with. This is what
 // actually controls payout — batch size only controls how the UI paces it.
-const DAILY_RETURN_CAP_PCT = 0.50;
+const DAILY_RETURN_CAP_PCT = 0.40;
 
 // Order value is scaled to the customer's own balance, tuned per tier so a
 // batch is a meaningful slice of the daily cap rather than using it all at

@@ -9,7 +9,7 @@ const TIERS = {
 };
 
 const REFERRAL_COMMISSION_RATE = 0.0001; // 0.01% of the order value, per the Invite & Earn page copy
-const DAILY_RETURN_CAP_PCT = 0.50;       // must match task_next.js
+const DAILY_RETURN_CAP_PCT = 0.40;       // must match task_next.js
 
 // Must match task_next.js — the highest order value the server would ever issue per tier.
 const ORDER_VALUE_MAX_PCT = {
