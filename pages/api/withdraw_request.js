@@ -5,7 +5,7 @@ import { requireUser, validateRequired, logRecord } from '../../lib/auth';
 
 // Flat platform withdrawal fee — applies equally to every customer, every withdrawal.
 // This must match the percentage shown on the Withdraw page and in Compliance & Terms.
-const WITHDRAWAL_FEE_PCT = 0.30;
+const WITHDRAWAL_FEE_PCT = 0.03;
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
