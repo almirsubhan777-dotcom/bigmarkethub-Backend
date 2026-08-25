@@ -1,6 +1,15 @@
 // pages/admin/support.js
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import AdminLayout from '../../components/AdminLayout';
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function Support() {
   const [tickets, setTickets] = useState([]);
@@ -9,6 +18,16 @@ export default function Support() {
   const [reply, setReply] = useState('');
   const [showChatOnMobile, setShowChatOnMobile] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState(null); // { dataUrl, type }
+  const [isRecording, setIsRecording] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
+
+  const imageInputRef = useRef(null);
+  const docInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const recTimerRef = useRef(null);
 
   const loadTickets = useCallback(async () => {
     const res = await fetch('/api/admin/support');
@@ -48,19 +67,92 @@ export default function Support() {
   function selectTicket(id) {
     setActiveId(id);
     setShowChatOnMobile(true);
+    setPendingAttachment(null);
+  }
+
+  async function handleImagePick(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert('Please choose an image under 5MB.'); return; }
+    const dataUrl = await fileToDataUrl(file);
+    setPendingAttachment({ dataUrl, type: 'image' });
+    e.target.value = '';
+  }
+
+  async function handleDocPick(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { alert('Please choose a PDF document.'); return; }
+    if (file.size > 8 * 1024 * 1024) { alert('Please choose a PDF under 8MB.'); return; }
+    const dataUrl = await fileToDataUrl(file);
+    setPendingAttachment({ dataUrl, type: 'document' });
+    e.target.value = '';
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const recorder = new MediaRecorder(stream);
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+
+      setIsRecording(true);
+      setRecSeconds(0);
+      recTimerRef.current = setInterval(() => {
+        setRecSeconds((s) => {
+          if (s + 1 >= 120) { stopRecording(true); return s; } // 2 min safety cap
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      alert('Please allow microphone access to record a voice note.');
+    }
+  }
+
+  async function stopRecording(keep) {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    clearInterval(recTimerRef.current);
+    setIsRecording(false);
+
+    await new Promise((resolve) => {
+      recorder.onstop = resolve;
+      recorder.stop();
+    });
+    recorder.stream.getTracks().forEach((t) => t.stop());
+
+    if (keep && chunksRef.current.length > 0) {
+      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      const dataUrl = await fileToDataUrl(blob);
+      setPendingAttachment({ dataUrl, type: 'audio' });
+    }
+    mediaRecorderRef.current = null;
+    chunksRef.current = [];
   }
 
   async function sendReply(e) {
     e.preventDefault();
-    if (!reply.trim()) return;
-    await fetch('/api/admin/support', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket_id: activeId, message: reply }),
-    });
-    setReply('');
-    loadMessages(activeId);
-    loadTickets();
+    if (!reply.trim() && !pendingAttachment) return;
+    setSending(true);
+    try {
+      await fetch('/api/admin/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticket_id: activeId,
+          message: reply,
+          attachment: pendingAttachment ? pendingAttachment.dataUrl : null,
+        }),
+      });
+      setReply('');
+      setPendingAttachment(null);
+      loadMessages(activeId);
+      loadTickets();
+    } finally {
+      setSending(false);
+    }
   }
 
   async function closeTicket() {
@@ -81,7 +173,15 @@ export default function Support() {
         .support-list{ width:280px; flex-shrink:0; background:#14161c; border-radius:12px; overflow-y:auto; display:flex; flex-direction:column; }
         .support-chat{ flex:1; min-width:0; display:flex; flex-direction:column; background:#14161c; border-radius:12px; overflow:hidden; }
         .support-back-btn{ display:none; }
+        .support-attach-btn{
+          width:36px; height:36px; border-radius:50%; flex-shrink:0;
+          background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:#9aa0aa;
+          display:flex; align-items:center; justify-content:center; cursor:pointer;
+        }
+        .support-attach-btn:hover{ color:#2DD4A7; border-color:#2DD4A7; }
+        .support-attach-btn.active{ background:rgba(255,71,71,.15); border-color:#FF4747; color:#ff6b6b; }
         @keyframes spin{ from{ transform:rotate(0deg); } to{ transform:rotate(360deg); } }
+        @keyframes pulseDot{ 0%,100%{ opacity:1; } 50%{ opacity:.3; } }
         @media (max-width: 768px){
           .support-shell{ height: calc(100vh - 150px); }
           .support-list{ width:100%; }
@@ -175,17 +275,63 @@ export default function Support() {
                     {m.attachment_url && m.attachment_type === 'audio' && (
                       <audio controls src={m.attachment_url} style={{ marginTop: 6, maxWidth: 220, height: 34, display: 'block' }} />
                     )}
+                    {m.attachment_url && m.attachment_type === 'document' && (
+                      <a
+                        href={m.attachment_url} target="_blank" rel="noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, background: 'rgba(255,255,255,.15)', padding: '6px 10px', borderRadius: 8, color: 'inherit', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}
+                      >
+                        📄 View Document
+                      </a>
+                    )}
                     <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>{new Date(m.created_at).toLocaleString()}</div>
                   </div>
                 ))}
               </div>
-              <form onSubmit={sendReply} style={{ display: 'flex', gap: 8, padding: '14px 18px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
+
+              {pendingAttachment && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 18px', borderTop: '1px solid rgba(255,255,255,.08)', background: 'rgba(45,212,167,.05)' }}>
+                  {pendingAttachment.type === 'image' && <img src={pendingAttachment.dataUrl} alt="Preview" style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover' }} />}
+                  {pendingAttachment.type === 'audio' && <span style={{ fontSize: 12.5, color: '#2DD4A7', fontWeight: 700 }}>🎤 Voice note ready</span>}
+                  {pendingAttachment.type === 'document' && <span style={{ fontSize: 12.5, color: '#2DD4A7', fontWeight: 700 }}>📄 Document ready</span>}
+                  <button
+                    type="button" onClick={() => setPendingAttachment(null)}
+                    style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#9aa0aa', fontSize: 18, cursor: 'pointer' }}
+                  >×</button>
+                </div>
+              )}
+
+              {isRecording && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', borderTop: '1px solid rgba(255,71,71,.2)', background: 'rgba(255,71,71,.06)', fontSize: 12.5, color: '#ff6b6b', fontWeight: 700 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#FF4747', animation: 'pulseDot 1.1s ease-in-out infinite' }} />
+                  Recording… {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, '0')}
+                  <button type="button" onClick={() => stopRecording(true)} style={{ marginLeft: 'auto', background: 'rgba(255,255,255,.1)', border: 'none', color: '#fff', padding: '5px 10px', borderRadius: 7, fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Stop &amp; Preview</button>
+                  <button type="button" onClick={() => stopRecording(false)} style={{ background: 'transparent', border: 'none', color: '#9aa0aa', fontSize: 11.5, cursor: 'pointer' }}>Cancel</button>
+                </div>
+              )}
+
+              <form onSubmit={sendReply} style={{ display: 'flex', gap: 8, padding: '14px 18px', borderTop: '1px solid rgba(255,255,255,.08)', alignItems: 'center' }}>
+                <input type="file" accept="image/*" ref={imageInputRef} onChange={handleImagePick} style={{ display: 'none' }} />
+                <input type="file" accept="application/pdf" ref={docInputRef} onChange={handleDocPick} style={{ display: 'none' }} />
+
+                <button type="button" className="support-attach-btn" title="Attach photo" onClick={() => imageInputRef.current.click()}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                </button>
+                <button type="button" className="support-attach-btn" title="Attach PDF document" onClick={() => docInputRef.current.click()}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+                </button>
+                <button
+                  type="button" className={`support-attach-btn${isRecording ? ' active' : ''}`} title="Record voice note"
+                  onClick={() => (isRecording ? stopRecording(true) : startRecording())}
+                >
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4"/></svg>
+                </button>
+
                 <input
                   type="text" placeholder="Type a reply..." value={reply}
                   onChange={(e) => setReply(e.target.value)}
-                  style={{ flex: 1, margin: 0 }}
+                  style={{ flex: 1, minWidth: 0, margin: 0 }}
                 />
-                <button className="btn btn-approve" type="submit">Send</button>
+                <button className="btn btn-approve" type="submit" disabled={sending}>{sending ? 'Sending…' : 'Send'}</button>
               </form>
             </>
           )}
