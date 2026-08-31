@@ -60,7 +60,7 @@ export default function Support() {
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') loadTickets();
-    }, 5000);
+    }, 1000);
     return () => clearInterval(interval);
   }, [loadTickets]);
 
@@ -70,7 +70,7 @@ export default function Support() {
     if (!activeId) return;
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') loadMessages(activeId);
-    }, 4000);
+    }, 1000);
     return () => clearInterval(interval);
   }, [activeId, loadMessages]);
 
