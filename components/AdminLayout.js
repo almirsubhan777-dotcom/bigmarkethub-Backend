@@ -1,7 +1,7 @@
 // components/AdminLayout.js
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 
 const fullNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard' },
@@ -26,7 +26,9 @@ export default function AdminLayout({ title, children }) {
   const router = useRouter();
   const [adminInfo, setAdminInfo] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [counts, setCounts] = useState({ deposits: 0, withdrawals: 0, kyc: 0, support: 0 });
+  const [flash, setFlash] = useState(false);
+  const prevTotalRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,36 +59,64 @@ export default function AdminLayout({ title, children }) {
     return () => { cancelled = true; clearInterval(interval); };
   }, [router]);
 
-  // Poll for unread support messages from every admin page, so a new customer
-  // message shows up (sidebar badge + browser tab title) no matter which
-  // page you're currently looking at — not just when you're on Support Chat.
-  useEffect(() => {
-    let cancelled = false;
+  // Poll pending counts (deposits, withdrawals, KYC, support) from every admin
+  // page, every 5 seconds, so new customer activity shows up almost instantly
+  // — sidebar badges + browser tab title — no matter which page is open.
+  const checkCounts = useCallback(async (isAdmin) => {
+    try {
+      const supportRes = await fetch('/api/admin/support');
+      const support = supportRes.ok ? await supportRes.json() : null;
+      const supportUnread = support
+        ? (support.tickets || []).reduce((sum, t) => sum + (t.unread || 0), 0)
+        : 0;
 
-    async function checkUnread() {
-      try {
-        const res = await fetch('/api/admin/support');
-        if (!res.ok) return;
-        const data = await res.json();
-        const total = (data.tickets || []).reduce((sum, t) => sum + (t.unread || 0), 0);
-        if (!cancelled) setUnreadCount(total);
-      } catch (e) {
-        /* ignore — next poll will retry */
+      let next = { deposits: 0, withdrawals: 0, kyc: 0, support: supportUnread };
+
+      if (isAdmin) {
+        const statsRes = await fetch('/api/admin/dashboard');
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          if (stats?.stats) {
+            next = {
+              deposits: stats.stats.pendingDeposits || 0,
+              withdrawals: stats.stats.pendingWithdrawals || 0,
+              kyc: stats.stats.pendingKyc || 0,
+              support: supportUnread,
+            };
+          }
+        }
       }
+
+      const total = next.deposits + next.withdrawals + next.kyc + next.support;
+      if (total > prevTotalRef.current) {
+        setFlash(true);
+        setTimeout(() => setFlash(false), 1600);
+      }
+      prevTotalRef.current = total;
+      setCounts(next);
+    } catch (e) {
+      /* ignore — next poll will retry */
     }
-
-    checkUnread();
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') checkUnread();
-    }, 15000);
-
-    document.addEventListener('visibilitychange', checkUnread);
-    return () => { cancelled = true; clearInterval(interval); document.removeEventListener('visibilitychange', checkUnread); };
   }, []);
 
   useEffect(() => {
-    document.title = unreadCount > 0 ? `(${unreadCount}) Admin — Big Market Hub` : 'Admin — Big Market Hub';
-  }, [unreadCount]);
+    const isAdmin = adminInfo ? adminInfo.role !== 'distributor' : true; // assume admin until we know otherwise
+    checkCounts(isAdmin);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') checkCounts(isAdmin);
+    }, 5000);
+    function onVisible() {
+      if (document.visibilityState === 'visible') checkCounts(isAdmin);
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible); };
+  }, [checkCounts, adminInfo?.role]);
+
+  const totalCount = counts.deposits + counts.withdrawals + counts.kyc + counts.support;
+
+  useEffect(() => {
+    document.title = totalCount > 0 ? `(${totalCount}) Admin — Big Market Hub` : 'Admin — Big Market Hub';
+  }, [totalCount]);
 
   // Close the mobile drawer automatically whenever the page changes.
   useEffect(() => {
@@ -129,19 +159,30 @@ export default function AdminLayout({ title, children }) {
           </div>
         )}
         <nav>
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`admin-nav-link${router.pathname === item.href ? ' active' : ''}`}
-            >
-              {item.label}
-              {item.href === '/admin/support' && unreadCount > 0 && (
-                <span className="admin-nav-badge">{unreadCount}</span>
-              )}
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            const badgeCount =
+              item.href === '/admin/deposits' ? counts.deposits :
+              item.href === '/admin/withdrawals' ? counts.withdrawals :
+              item.href === '/admin/kyc' ? counts.kyc :
+              item.href === '/admin/support' ? counts.support : 0;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`admin-nav-link${router.pathname === item.href ? ' active' : ''}`}
+              >
+                {item.label}
+                {badgeCount > 0 && (
+                  <span className={`admin-nav-badge${flash ? ' flash' : ''}`}>{badgeCount}</span>
+                )}
+              </Link>
+            );
+          })}
         </nav>
+        <div className="admin-live-status">
+          <span className={`admin-live-dot${totalCount > 0 ? ' has-pending' : ''}`}></span>
+          Live · updates every 5s
+        </div>
       </div>
 
       <div className="admin-main">
@@ -180,6 +221,24 @@ const globalStyles = `
     display:flex; align-items:center; justify-content:center; padding:0 5px;
     flex-shrink:0;
   }
+  .admin-nav-badge.flash{ animation: badgeFlash 1.6s ease; }
+  @keyframes badgeFlash{
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,71,71,0); }
+    15% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(255,71,71,0.35); }
+    35% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255,71,71,0); }
+  }
+  .admin-live-status{
+    display:flex; align-items:center; gap:6px;
+    margin-top:14px; padding:8px 12px;
+    font-size:10.5px; color:#6b7280;
+  }
+  .admin-live-dot{
+    width:6px; height:6px; border-radius:50%;
+    background:#2DD4A7; flex-shrink:0;
+    animation: pulseDot 2s ease-in-out infinite;
+  }
+  .admin-live-dot.has-pending{ background:#FFA23A; }
+  @keyframes pulseDot{ 0%,100%{ opacity:1; } 50%{ opacity:0.4; } }
 
   .admin-main{ flex:1; min-width:0; max-width:1200px; }
   .admin-page-topbar{ display:flex; justify-content:space-between; align-items:center; padding:18px 32px; border-bottom:1px solid rgba(255,255,255,.06); }

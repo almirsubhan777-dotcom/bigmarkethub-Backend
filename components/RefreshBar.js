@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 /**
- * Wire up "load on mount + auto-poll every 15s while tab is visible + manual
+ * Wire up "load on mount + auto-poll every 5s while tab is visible + manual
  * refresh" for any admin list page. Pass your own async loader function;
  * this hook handles the polling/visibility/cleanup plumbing around it.
  */
@@ -26,7 +26,7 @@ export function useAutoRefresh(loadFn, deps = []) {
     run(false);
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') run(false);
-    }, 15000);
+    }, 5000);
     function onVisible() {
       if (document.visibilityState === 'visible') run(false);
     }
@@ -62,7 +62,7 @@ export function RefreshBar({ refreshing, lastUpdated, onRefresh, extra }) {
       </button>
       <span style={{ fontSize: 11.5, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#2DD4A7', display: 'inline-block' }} />
-        {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · auto-refreshes every 15s` : 'Loading…'}
+        {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · auto-refreshes every 5s` : 'Loading…'}
       </span>
       {extra}
       <style>{`@keyframes spin{ from{ transform:rotate(0deg); } to{ transform:rotate(360deg); } }`}</style>
