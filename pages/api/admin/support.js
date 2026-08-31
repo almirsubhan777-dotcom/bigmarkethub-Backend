@@ -1,6 +1,11 @@
 // pages/api/admin/support.js
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
-import { requireAdmin } from '../../../lib/auth';
+import { requireAdmin, uploadChatAttachment } from '../../../lib/auth';
+
+// Photo/voice/document replies can be sizable; raise the body limit for this route.
+export const config = {
+  api: { bodyParser: { sizeLimit: '10mb' } },
+};
 
 export default async function handler(req, res) {
   const admin = await requireAdmin(req, res);
@@ -49,7 +54,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { ticket_id, message, action } = req.body || {};
+    const { ticket_id, message, action, attachment } = req.body || {};
     const ticketId = Number(ticket_id);
 
     if (action === 'close') {
@@ -58,13 +63,29 @@ export default async function handler(req, res) {
     }
 
     const msg = String(message || '').trim();
-    if (!ticketId || !msg) return res.status(400).json({ error: 'ticket_id and message are required' });
+    if (!ticketId || (!msg && !attachment)) {
+      return res.status(400).json({ error: 'ticket_id and a message or attachment are required' });
+    }
+
+    let uploaded = null;
+    if (attachment) {
+      uploaded = await uploadChatAttachment(attachment, `support_admin${admin.id}`);
+      if (!uploaded) {
+        return res.status(400).json({ error: 'Could not attach that file — please try a photo, PDF, or short voice note, under 5-8MB.' });
+      }
+    }
+
+    const fallbackText = uploaded
+      ? (uploaded.type === 'image' ? '📷 Photo' : uploaded.type === 'audio' ? '🎤 Voice message' : '📄 Document')
+      : '';
 
     const { error } = await supabaseAdmin.from('support_messages').insert({
       ticket_id: ticketId,
       sender_type: 'admin',
       sender_id: admin.id,
-      message: msg,
+      message: msg || fallbackText,
+      attachment_url: uploaded?.url || null,
+      attachment_type: uploaded?.type || null,
     });
     if (error) return res.status(500).json({ error: 'Could not send reply' });
 

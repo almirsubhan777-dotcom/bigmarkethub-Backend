@@ -3,6 +3,23 @@ import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../../../lib/supabaseAdmin';
 import { requireAdmin, logRecord } from '../../../lib/auth';
 
+// Matches task_next.js — used only to show "X / batch size" per user, not for payouts.
+const TIER_BATCH = [
+  { min: 999, size: 60 },
+  { min: 499, size: 40 },
+  { min: 10,  size: 12 },
+];
+function batchSizeFor(balance) {
+  const tier = TIER_BATCH.find((t) => balance >= t.min);
+  return tier ? tier.size : 12;
+}
+
+function startOfTodayISO() {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 export default async function handler(req, res) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
@@ -27,7 +44,33 @@ export default async function handler(req, res) {
 
     const { data: users, error } = await query;
     if (error) return res.status(500).json({ error: 'Could not fetch users' });
-    return res.status(200).json({ success: true, users });
+
+    // One extra query for ALL of today's task records, grouped by user — far
+    // cheaper than a per-user subquery, and gives live "tasks today" + batch
+    // position for every row in the table.
+    const { data: todayTasks } = await supabaseAdmin
+      .from('records')
+      .select('user_id, created_at')
+      .eq('type', 'task')
+      .gte('created_at', startOfTodayISO());
+
+    const tasksTodayByUser = {};
+    (todayTasks || []).forEach((r) => {
+      tasksTodayByUser[r.user_id] = (tasksTodayByUser[r.user_id] || 0) + 1;
+    });
+
+    const usersWithActivity = (users || []).map((u) => {
+      const tasksToday = tasksTodayByUser[u.id] || 0;
+      const batchSize = batchSizeFor(Number(u.balance));
+      return {
+        ...u,
+        tasks_today: tasksToday,
+        batch_size: batchSize,
+        tasks_in_batch: tasksToday % batchSize,
+      };
+    });
+
+    return res.status(200).json({ success: true, users: usersWithActivity });
   }
 
   if (req.method === 'POST') {
