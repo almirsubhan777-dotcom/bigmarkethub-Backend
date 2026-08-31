@@ -56,13 +56,23 @@ export default function Support() {
   useEffect(() => { loadTickets(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { loadMessages(activeId); }, [activeId, loadMessages]);
 
-  // Gently keep the ticket list (and its unread counts) current while this page is open.
+  // Keep the ticket list (and unread counts) current while this page is open.
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') loadTickets();
-    }, 15000);
+    }, 5000);
     return () => clearInterval(interval);
   }, [loadTickets]);
+
+  // Keep the CURRENTLY OPEN conversation's messages current too — this is what
+  // makes replies show up within seconds instead of only after switching tickets.
+  useEffect(() => {
+    if (!activeId) return;
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadMessages(activeId);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeId, loadMessages]);
 
   function selectTicket(id) {
     setActiveId(id);

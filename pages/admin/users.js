@@ -111,7 +111,7 @@ export default function Users() {
       ) : (
         <table>
           <thead>
-            <tr><th>UID</th><th>Username</th><th>Email</th><th>Balance</th><th>KYC</th><th>Status</th><th>Joined</th><th>Actions</th></tr>
+            <tr><th>UID</th><th>Username</th><th>Email</th><th>Balance</th><th>Tasks Today</th><th>KYC</th><th>Status</th><th>Joined</th><th>Actions</th></tr>
           </thead>
           <tbody>
             {users.map((u) => (
@@ -120,6 +120,12 @@ export default function Users() {
                 <td>{u.username}</td>
                 <td>{u.email}</td>
                 <td>${Number(u.balance).toFixed(2)}</td>
+                <td>
+                  {u.tasks_today > 0
+                    ? <span className="badge badge-active">{u.tasks_in_batch} / {u.batch_size}</span>
+                    : <span style={{ color: '#6b7280', fontSize: 12 }}>—</span>}
+                  {u.tasks_today > 0 && <div style={{ fontSize: 10, color: '#9aa0aa', marginTop: 3 }}>{u.tasks_today} total today</div>}
+                </td>
                 <td><span className={`badge badge-${u.kyc_status === 'verified' ? 'approved' : u.kyc_status === 'pending' ? 'pending' : 'rejected'}`}>{u.kyc_status}</span></td>
                 <td><span className={`badge badge-${u.status}`}>{u.status}</span></td>
                 <td>{new Date(u.created_at).toLocaleDateString()}</td>
