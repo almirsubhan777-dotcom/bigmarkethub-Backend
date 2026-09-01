@@ -104,7 +104,7 @@ export default function AdminLayout({ title, children }) {
     checkCounts(isAdmin);
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') checkCounts(isAdmin);
-    }, 1000);
+    }, 3000);
     function onVisible() {
       if (document.visibilityState === 'visible') checkCounts(isAdmin);
     }
@@ -181,7 +181,7 @@ export default function AdminLayout({ title, children }) {
         </nav>
         <div className="admin-live-status">
           <span className={`admin-live-dot${totalCount > 0 ? ' has-pending' : ''}`}></span>
-          Live · updates every 1s
+          Live · updates every 3s
         </div>
       </div>
 
