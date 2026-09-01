@@ -30,24 +30,38 @@ export default function Support() {
   const recTimerRef = useRef(null);
 
   const loadTickets = useCallback(async () => {
-    const res = await fetch('/api/admin/support');
-    const data = await res.json();
-    const list = data.tickets || [];
-    setTickets(list);
-    if (!activeId && list.length > 0) setActiveId(list[0].id);
+    try {
+      const res = await fetch('/api/admin/support');
+      if (!res.ok) return; // transient server/network hiccup — just skip this poll cycle
+      const data = await res.json();
+      const list = Array.isArray(data?.tickets) ? data.tickets : [];
+      setTickets(list);
+      if (!activeId && list.length > 0) setActiveId(list[0].id);
+    } catch (e) {
+      // Network drop, timeout, or a non-JSON error page — never let this bubble
+      // up and disrupt the page. The next poll cycle (a few seconds later) will
+      // simply try again.
+    }
   }, [activeId]);
 
   const loadMessages = useCallback(async (ticketId) => {
     if (!ticketId) return;
-    const res = await fetch('/api/admin/support?ticket_id=' + ticketId);
-    const data = await res.json();
-    setMessages(data.messages || []);
+    try {
+      const res = await fetch('/api/admin/support?ticket_id=' + ticketId);
+      if (!res.ok) return;
+      const data = await res.json();
+      setMessages(Array.isArray(data?.messages) ? data.messages : []);
+    } catch (e) {
+      // Same as above — a dropped poll is invisible and harmless; the next one recovers it.
+    }
   }, []);
 
   async function handleManualRefresh() {
     setRefreshing(true);
     try {
       await Promise.all([loadTickets(), loadMessages(activeId)]);
+    } catch (e) {
+      /* individual loaders already guard themselves; nothing more to do here */
     } finally {
       setRefreshing(false);
     }
@@ -84,8 +98,12 @@ export default function Support() {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { alert('Please choose an image under 5MB.'); return; }
-    const dataUrl = await fileToDataUrl(file);
-    setPendingAttachment({ dataUrl, type: 'image' });
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setPendingAttachment({ dataUrl, type: 'image' });
+    } catch (err) {
+      alert('Could not read that image — please try a different file.');
+    }
     e.target.value = '';
   }
 
@@ -94,8 +112,12 @@ export default function Support() {
     if (!file) return;
     if (file.type !== 'application/pdf') { alert('Please choose a PDF document.'); return; }
     if (file.size > 8 * 1024 * 1024) { alert('Please choose a PDF under 8MB.'); return; }
-    const dataUrl = await fileToDataUrl(file);
-    setPendingAttachment({ dataUrl, type: 'document' });
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setPendingAttachment({ dataUrl, type: 'document' });
+    } catch (err) {
+      alert('Could not read that file — please try a different PDF.');
+    }
     e.target.value = '';
   }
 
@@ -147,7 +169,7 @@ export default function Support() {
     if (!reply.trim() && !pendingAttachment) return;
     setSending(true);
     try {
-      await fetch('/api/admin/support', {
+      const res = await fetch('/api/admin/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -156,22 +178,30 @@ export default function Support() {
           attachment: pendingAttachment ? pendingAttachment.dataUrl : null,
         }),
       });
+      if (!res.ok) throw new Error('Send failed');
       setReply('');
       setPendingAttachment(null);
-      loadMessages(activeId);
-      loadTickets();
+      await loadMessages(activeId);
+      await loadTickets();
+    } catch (e) {
+      alert('Could not send that message — please check your connection and try again.');
     } finally {
       setSending(false);
     }
   }
 
   async function closeTicket() {
-    await fetch('/api/admin/support', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket_id: activeId, action: 'close' }),
-    });
-    loadTickets();
+    try {
+      const res = await fetch('/api/admin/support', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket_id: activeId, action: 'close' }),
+      });
+      if (!res.ok) throw new Error('Close failed');
+      await loadTickets();
+    } catch (e) {
+      alert('Could not close the ticket — please check your connection and try again.');
+    }
   }
 
   const activeTicket = tickets.find((t) => t.id === activeId);
