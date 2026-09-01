@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState, useCallback, useRef } from 'react';
+import ErrorBoundary from './ErrorBoundary';
 
 const fullNavItems = [
   { href: '/admin/dashboard', label: 'Dashboard' },
@@ -29,6 +30,45 @@ export default function AdminLayout({ title, children }) {
   const [counts, setCounts] = useState({ deposits: 0, withdrawals: 0, kyc: 0, support: 0 });
   const [flash, setFlash] = useState(false);
   const prevTotalRef = useRef(0);
+  const prevSupportRef = useRef(0);
+  const firstCheckRef = useRef(true);
+
+  /** A short, pleasant two-tone notification chime — generated on the fly, no audio file needed. */
+  function playChime() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new Ctx();
+      const now = ctx.currentTime;
+      [[880, 0], [1175, 0.12]].forEach(([freq, delay]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, now + delay);
+        gain.gain.linearRampToValueAtTime(0.22, now + delay + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.35);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now + delay);
+        osc.stop(now + delay + 0.4);
+      });
+      setTimeout(() => ctx.close(), 900);
+    } catch (e) {
+      /* Web Audio unsupported or blocked — the visual flash still shows either way */
+    }
+  }
+
+  /** Speaks "You received a new message" out loud using the browser's built-in voice. */
+  function announceNewMessage() {
+    try {
+      if (!window.speechSynthesis) return;
+      const utter = new SpeechSynthesisUtterance('You received a new message');
+      utter.rate = 1;
+      utter.volume = 0.85;
+      window.speechSynthesis.speak(utter);
+    } catch (e) {
+      /* Speech synthesis unsupported — the chime still plays either way */
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +132,17 @@ export default function AdminLayout({ title, children }) {
         setFlash(true);
         setTimeout(() => setFlash(false), 1600);
       }
+
+      // Sound + spoken alert specifically for new chat messages (not on the very
+      // first check after loading the page — only for messages that arrive
+      // while you're actively using the panel).
+      if (!firstCheckRef.current && next.support > prevSupportRef.current) {
+        playChime();
+        announceNewMessage();
+      }
+      firstCheckRef.current = false;
+      prevSupportRef.current = next.support;
+
       prevTotalRef.current = total;
       setCounts(next);
     } catch (e) {
@@ -195,7 +246,7 @@ export default function AdminLayout({ title, children }) {
           </div>
           <button onClick={handleLogout} className="admin-logout-btn">Log out</button>
         </div>
-        <div className="admin-page-body">{children}</div>
+        <div className="admin-page-body"><ErrorBoundary>{children}</ErrorBoundary></div>
       </div>
     </div>
   );
